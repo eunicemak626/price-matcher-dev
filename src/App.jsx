@@ -123,6 +123,36 @@ function App() {
     }
   }, [priceList, productList, isLocked])
 
+  // Auto-copy result to clipboard when matchResult changes
+  useEffect(() => {
+    if (matchResult) {
+      const autoCopy = async () => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(matchResult)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+          }
+        } catch (err) {
+          console.error('Auto-copy failed:', err)
+        }
+      }
+      autoCopy()
+    }
+  }, [matchResult])
+
+  // Listen for ESC key to clear all data
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        clearAll()
+      }
+    }
+    
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   // Parse price list into structured data
   const parsePriceList = (text) => {
     const lines = text.trim().split('\n')
