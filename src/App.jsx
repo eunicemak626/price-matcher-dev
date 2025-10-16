@@ -146,6 +146,7 @@ function App() {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         clearAll()
+        console.log(\'ESC key pressed, clearing all data.\')
       }
     }
     
@@ -406,8 +407,8 @@ function App() {
       }
     }
 
-    setMatchResult(results.join('\n'))
-    setStats({
+  setMatchResult(results.join(\'\\n\'))
+      console.log(\'Match result updated:\', results.join(\'\\n\'))    setStats({
       matched: matchedCount,
       unmatched: unmatchedCount,
       total: products.length
