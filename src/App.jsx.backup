@@ -1,0 +1,48 @@
+import { useState, useEffect } from 'react'
+import { Button } from '@/components/ui/button.jsx'
+import { Textarea } from '@/components/ui/textarea.jsx'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
+import { Check } from 'lucide-react'
+import './App.css'
+
+function App() {
+  const [priceList, setPriceList] = useState(`UNLOCKED\tN/A
+IPHONE 15\tBLACK\t128GB\t3\t3700`)
+  const [productList, setProductList] = useState(`UNLOCKED\tN/A
+22\tIPHONE 16E\t128GB\tBLACK
+23\tIPHONE 16E\t128GB\tBLACK`)
+  const [matchResult, setMatchResult] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  // Auto-match when both inputs have content
+  useEffect(() => {
+    if (priceList.trim() && productList.trim()) {
+      const timer = setTimeout(() => {
+        matchProducts()
+      }, 500)
+      return () => clearTimeout(timer)
+    }
+  }, [priceList, productList])
+
+  // Parse price list into structured data
+  const parsePriceList = (text) => {
+    const lines = text.trim().split('\n')
+    const prices = []
+    let currentCategory = 'DEFAULT'
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+
+      const upperLine = trimmed.toUpperCase()
+      const isHeader = (upperLine.includes('CAP') || upperLine.includes('CAPACITY')) && 
+          (upperLine.includes('QTY') || upperLine.includes('QUANTITY')) && 
+          (upperLine.includes('HKD') || upperLine.includes('PRICE'))
+      
+      if (isHeader) {
+        const parts = trimmed.split('\t')
+        if (parts.length > 1) {
+          const firstCol = parts[0].trim()
+          if (firstCol === firstCol.toUpperCase() && 
+              !firstCol.includes('CAP') && 
+              !firstCol.
