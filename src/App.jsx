@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Textarea } from '@/components/ui/textarea.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
@@ -266,8 +266,9 @@ function App() {
     setLockedResult(results.join('\n'));
   };
 
-  // Clear all inputs and scroll to top
-  const handleClearAll = () => {
+  // 使用 useCallback 確保函數引用穩定
+  const handleClearAll = useCallback(() => {
+    console.log('🧹 Clearing all data...');
     setPriceList('');
     setProductList('');
     setMatchResult('');
@@ -279,26 +280,35 @@ function App() {
     localStorage.clear();
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    console.log('All data cleared successfully');
-  };
+    console.log('✅ All data cleared successfully');
+  }, []);
 
-  // 全域 ESC 監聽：任何時候按 ESC 都清除
+  // 全域 ESC 監聽 - 使用 capture 階段捕獲
   useEffect(() => {
     const onKeyDown = (e) => {
+      console.log('🔑 Key pressed:', e.key, 'KeyCode:', e.keyCode);
+      
       const isEsc = e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27;
-      if (!isEsc) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-      handleClearAll();
+      
+      if (isEsc) {
+        console.log('🚨 ESC detected! Clearing...');
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        handleClearAll();
+      }
     };
 
-    window.addEventListener('keydown', onKeyDown);
+    // 使用 capture 階段，優先級更高
+    document.addEventListener('keydown', onKeyDown, true);
+    
+    console.log('👂 ESC listener attached');
+    
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', onKeyDown, true);
+      console.log('👋 ESC listener removed');
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [handleClearAll]);
 
   // Auto-copy result to clipboard when matchResult changes
   useEffect(() => {
@@ -394,7 +404,11 @@ function App() {
       <Card className="w-full max-w-4xl mx-auto">
         <CardHeader>
           <CardTitle className="text-3xl font-bold text-center">產品價格匹配系統</CardTitle>
-          <CardDescription className="text-center">自動匹配產品列表與價格，快速生成報價結果</CardDescription>
+          <CardDescription className="text-center">
+            自動匹配產品列表與價格，快速生成報價結果
+            <br />
+            <span className="text-red-500 font-semibold">按 ESC 鍵可清除所有資料</span>
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
