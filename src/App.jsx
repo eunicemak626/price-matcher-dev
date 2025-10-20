@@ -121,24 +121,18 @@ function App() {
     // 清除 localStorage（如果有使用）
     localStorage.clear(); // 清除所有 localStorage
 
-    // Scroll to top     window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Scroll to top     
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     console.log("All data cleared successfully");
   };
 
-  // Listen for ESC key to clear all data
-  useEffect(() => {
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape' || event.keyCode === 27) {
-        event.preventDefault();
-        event.stopPropagation();
-        handleClearAll();
-        console.log('ESC key pressed, clearing all data.');
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown, true);
-    return () => document.removeEventListener('keydown', handleKeyDown, true);
-  }, [handleClearAll]);
+  const handleTextareaKeyDown = (e) => {
+    if (e.key === 'Escape' || e.keyCode === 27) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleClearAll();
+    }
+  };
 
   // Auto-copy result to clipboard when matchResult changes
   useEffect(() => {
@@ -314,205 +308,177 @@ function App() {
     return model.toUpperCase().replace(/\s+/g, ' ');
   };
 
-  // Check if category requires color matching
-  const needsColorMatch = (category, priceModel = '') => {
-    const cat = category.toUpperCase();
-    const model = priceModel.toUpperCase();
-    
-    // UNLOCKED categories always need color matching
-    if (cat.includes('UNLOCKED')) return true;
-    
-    // LOCKED categories: only match color if category contains N/A or ACT
-    if (cat.includes('LOCKED')) {
-      if (cat.includes('N/A') || cat.includes('ACT')) return true;
-      // For other LOCKED categories, only match color if the price model explicitly contains a color
-      const colors = ['BLACK', 'WHITE', 'BLUE', 'ORANGE', 'SILVER', 'GOLD', 'NATURAL', 'DESERT', 
-                      'PINK', 'ULTRAMARINE', 'GRAY', 'GREY', 'GREEN', 'RED', 'PURPLE', 
-                      'YELLOW', 'LAVENDER', 'SAGE', 'MIDNIGHT', 'STARLIGHT', 'TITANIUM',
-                      'SPACE', 'ROSE', 'CORAL', 'TEAL', 'INDIGO', 'CRIMSON'];
-      return colors.some(color => model.includes(color));
-    }
-    return false;
+  const needsCapacityMatch = (description) => {
+    return description.includes('IPHONE 15') || description.includes('IPHONE 16');
   };
 
-  // Check if models match (case-insensitive, ignoring capacity and potentially color)
+  const needsColorMatch = (category, model) => {
+    // Only match color for categories that are not 'LOCKED' or 'UNLOCKED'
+    // and for specific models that are known to have color variations in the price list
+    return !['LOCKED', 'UNLOCKED'].includes(category) && 
+           (model.includes('IPHONE 15') || model.includes('IPHONE 16') || model.includes('IPHONE 17'));
+  };
+
   const modelsMatch = (productModel, priceModel) => {
-    // Exact match first
-    if (productModel === priceModel) return true;
-
-    // Try partial matching for common cases (e.g., 'IPHONE 15 PRO' vs 'IPHONE 15 PRO MAX')
-    // This logic might need refinement based on exact matching rules
-    if (productModel.includes(priceModel) || priceModel.includes(productModel)) {
-      return true;
-    }
-    
-    return false;
+    // Enhanced model matching to handle variations like 'IPHONE 16 PRO' vs 'IPHONE 16PRO'
+    const normalize = (str) => str.replace(/\s+/g, '').toUpperCase();
+    return normalize(productModel).includes(normalize(priceModel)) || 
+           normalize(priceModel).includes(normalize(productModel));
   };
 
-  // Match products to prices
-  const matchProducts = () => {
+  // Main matching logic
+  useEffect(() => {
+    if (priceList.trim() === '' || productList.trim() === '') {
+      setMatchResult('');
+      setStats({ matched: 0, unmatched: 0, total: 0 });
+      return;
+    }
+
     const prices = parsePriceList(priceList);
     const products = parseProductList(productList);
-    
-    const results = [];
+
+    let currentMatchResult = [];
     let matchedCount = 0;
     let unmatchedCount = 0;
-    let lastCategory = null;
+    let currentCategory = null;
 
     for (const product of products) {
       const productCapacity = extractCapacity(product.description);
       const requiresCapacity = needsCapacityMatch(product.description);
-      
-      let matchedPrice = null;
+
+      let bestMatchedPrice = null;
 
       for (const price of prices) {
         if (price.category !== product.category) continue;
 
-        // Check if this specific price item needs color matching
         const requiresColor = needsColorMatch(product.category, price.model);
-        
         const productModel = extractModelName(product.description, !requiresColor);
         const priceModel = extractModelName(price.model, !requiresColor);
-        
+
         if (!modelsMatch(productModel, priceModel)) {
           continue;
         }
-        
+
         if (requiresCapacity) {
-          // If price.capacity is empty, extract from price.model
           const priceCapacity = price.capacity || extractCapacity(price.model);
           if (priceCapacity && productCapacity && priceCapacity !== productCapacity) {
             continue;
           }
         }
 
-        matchedPrice = price;
-        break;
+        // If we reach here, it's a potential match. Prioritize more specific matches if needed.
+        bestMatchedPrice = price;
+        break; // Found a match, move to next product
       }
 
-      if (matchedPrice !== null) {
-        // Add double line break between different categories
-        if (lastCategory !== null && lastCategory !== product.category) {
-          results.push('');  // Empty line
-          results.push('');  // Second empty line
+      if (bestMatchedPrice) {
+        if (currentCategory !== null && currentCategory !== product.category) {
+          currentMatchResult.push(''); // Add empty line between categories
         }
-        
-        // Use remarks from parsed product data (B欄備註)
         const remarks = product.remarks || '';
-        
-        // Apply deductions
-        const deductedPrice = applyDeductions(matchedPrice.price, remarks);
-        
-        results.push(`${product.lineNum}\t${deductedPrice}`);
+        const deductedPrice = applyDeductions(bestMatchedPrice.price, remarks);
+        currentMatchResult.push(`${product.lineNum}\t${deductedPrice}`);
         matchedCount++;
-        lastCategory = product.category;
+        currentCategory = product.category;
       } else {
         unmatchedCount++;
-        // Don't add unmatched lines to results
       }
     }
 
-    setMatchResult(results.join('\n'));
-    console.log('Match result updated:', results.join('\n'));
+    setMatchResult(currentMatchResult.join('\n'));
     setStats({ matched: matchedCount, unmatched: unmatchedCount, total: products.length });
-  };
+  }, [priceList, productList, isLocked]); // Depend on priceList, productList, isLocked
 
-  const copyToClipboard = async () => {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(matchResult);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }
-    } catch (err) {
-      console.error('Failed to copy: ', err);
-    }
-  };
-
-  const toggleLock = () => {
-    setIsLocked(!isLocked);
-    // If toggling to locked mode, process matching immediately
+  const handleLockToggle = () => {
+    setIsLocked(prev => !prev);
     if (!isLocked) {
       processLockedMatching();
     } else {
-      setLockedResult(''); // Clear locked result when unlocking
+      setLockedResult('');
     }
   };
 
-  const downloadResult = () => {
-    const blob = new Blob([matchResult], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'price_match_result.txt';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
-    <div className="App">
-      <Card className="w-full max-w-4xl mx-auto mt-8">
+    <div className="container mx-auto p-4">
+      <Card className="w-full max-w-4xl mx-auto">
         <CardHeader>
           <CardTitle className="text-3xl font-bold text-center">產品價格匹配系統</CardTitle>
           <CardDescription className="text-center">自動匹配產品列表與價格，快速生成報價結果</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <h2 className="text-xl font-semibold mb-2">第一步: 輸入價格列表</h2>
+              <h2 className="text-xl font-semibold mb-2">第一步：輸入價格列表</h2>
               <p className="text-sm text-gray-500 mb-2">貼上您的 PRICE LIST (格式: 類別、型號、容量/Part Number、數量、價格)</p>
               <Textarea
-                placeholder="貼上價格列表..."
                 value={priceList}
                 onChange={(e) => setPriceList(e.target.value)}
-                rows={10}
+                onKeyDown={handleTextareaKeyDown}
+                placeholder="例如:\nUNLOCKED\nIPHONE 15 128GB 1 5000\nIPHONE 15 PRO 256GB 1 7000"
+                rows={15}
                 className="font-mono"
               />
             </div>
             <div>
-              <h2 className="text-xl font-semibold mb-2 flex items-center justify-between">
-                <span>第二步: 輸入產品列表</span>
-                <Button
-                  variant={isLocked ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={toggleLock}
-                  className="ml-2"
-                >
-                  {isLocked ? <Lock className="h-4 w-4 mr-2" /> : <Unlock className="h-4 w-4 mr-2" />}
-                  {isLocked ? '有鎖' : '解鎖'}
-                </Button>
-              </h2>
-              <p className="text-sm text-gray-500 mb-2">貼上您的 LIST (格式: 行號、產品描述, 支援備註欄)</p>
+              <h2 className="text-xl font-semibold mb-2">第二步：輸入產品列表</h2>
+              <p className="text-sm text-gray-500 mb-2">貼上您的 LIST (格式: 行號、產品描述, 支援備註)</p>
               <Textarea
-                placeholder="貼上產品列表..."
                 value={productList}
                 onChange={(e) => setProductList(e.target.value)}
-                rows={10}
+                onKeyDown={handleTextareaKeyDown}
+                placeholder="例如:\n1\tIPHONE 15 128GB BLUE\n2\tIPHONE 15 PRO 256GB BLACK"
+                rows={15}
                 className="font-mono"
               />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between mt-6">
+            <div className="flex items-center space-x-2">
+              <Button
+                onClick={handleLockToggle}
+                variant={isLocked ? 'destructive' : 'outline'}
+                className="flex items-center"
+              >
+                {isLocked ? <Lock className="mr-2 h-4 w-4" /> : <Unlock className="mr-2 h-4 w-4" />}
+                {isLocked ? '已鎖定' : '未鎖定'}
+              </Button>
+              {isLocked && <span className="text-sm text-gray-500">（鎖定模式已啟用，僅匹配已鎖定產品）</span>}
+            </div>
+            <div className="text-sm text-gray-600">
+              匹配: {stats.matched} / 未匹配: {stats.unmatched} / 總計: {stats.total}
             </div>
           </div>
 
           <div className="mt-6">
             <h2 className="text-xl font-semibold mb-2">匹配結果</h2>
             <p className="text-sm text-gray-500 mb-2">系統已完成自動匹配</p>
-            <Textarea
-              value={isLocked ? lockedResult : matchResult}
-              readOnly
-              rows={10}
-              className="font-mono bg-gray-50"
-            />
-            <div className="flex justify-end mt-2 space-x-2">
-              <Button onClick={copyToClipboard} disabled={!matchResult}>
-                {copied ? <Check className="h-4 w-4 mr-2" /> : null}複製結果
-              </Button>
-              <Button variant="outline" onClick={downloadResult} disabled={!matchResult}>下載結果</Button>
-              <Button variant="destructive" onClick={clearAll}>清除</Button>
+            <div className="relative">
+              <Textarea
+                value={isLocked ? lockedResult : matchResult}
+                readOnly
+                rows={10}
+                className="font-mono bg-gray-50"
+                onKeyDown={handleTextareaKeyDown}
+              />
+              <div className="absolute top-2 right-2 flex space-x-2">
+                <Button
+                  onClick={() => {
+                    navigator.clipboard.writeText(isLocked ? lockedResult : matchResult);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  variant="secondary"
+                  size="sm"
+                >
+                  {copied ? <Check className="mr-2 h-4 w-4" /> : null}
+                  {copied ? '已複製' : '複製結果'}
+                </Button>
+                <Button onClick={handleClearAll} variant="outline" size="sm">
+                  <Trash2 className="mr-2 h-4 w-4" /> 清除
+                </Button>
+              </div>
             </div>
-          </div>
-
-          <div className="mt-4 text-sm text-gray-600 text-center">
-            <p>匹配成功: {stats.matched} | 匹配失敗: {stats.unmatched} | 總計: {stats.total}</p>
           </div>
         </CardContent>
       </Card>
@@ -521,4 +487,3 @@ function App() {
 }
 
 export default App;
-
