@@ -283,12 +283,23 @@ function App() {
     console.log('✅ All data cleared successfully');
   }, []);
 
-  // 全域 ESC 監聽 - 使用 capture 階段捕獲
+  // 多重 ESC 監聽保險
   useEffect(() => {
-    const onKeyDown = (e) => {
-      console.log('🔑 Key pressed:', e.key, 'KeyCode:', e.keyCode);
+    const handleEscape = (e) => {
+      console.log('🔑 Key event:', {
+        key: e.key,
+        code: e.code,
+        keyCode: e.keyCode,
+        type: e.type,
+        target: e.target.tagName
+      });
       
-      const isEsc = e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27;
+      // 多種判斷方式
+      const isEsc = 
+        e.key === 'Escape' || 
+        e.key === 'Esc' || 
+        e.code === 'Escape' ||
+        e.keyCode === 27;
       
       if (isEsc) {
         console.log('🚨 ESC detected! Clearing...');
@@ -296,19 +307,34 @@ function App() {
         e.stopPropagation();
         e.stopImmediatePropagation();
         handleClearAll();
+        return false;
       }
     };
 
-    // 使用 capture 階段，優先級更高
-    document.addEventListener('keydown', onKeyDown, true);
+    // 方法 1: document keydown (capture)
+    document.addEventListener('keydown', handleEscape, true);
     
-    console.log('👂 ESC listener attached');
+    // 方法 2: document keyup (capture) - 備用
+    document.addEventListener('keyup', handleEscape, true);
+    
+    // 方法 3: window keydown (capture) - 最高優先級
+    window.addEventListener('keydown', handleEscape, true);
+    
+    console.log('👂 Multiple ESC listeners attached');
     
     return () => {
-      document.removeEventListener('keydown', onKeyDown, true);
-      console.log('👋 ESC listener removed');
+      document.removeEventListener('keydown', handleEscape, true);
+      document.removeEventListener('keyup', handleEscape, true);
+      window.removeEventListener('keydown', handleEscape, true);
+      console.log('👋 ESC listeners removed');
     };
   }, [handleClearAll]);
+
+  // 測試按鈕 - 用來確認 handleClearAll 本身是否工作
+  const testClear = () => {
+    console.log('🧪 Test button clicked');
+    handleClearAll();
+  };
 
   // Auto-copy result to clipboard when matchResult changes
   useEffect(() => {
@@ -407,7 +433,16 @@ function App() {
           <CardDescription className="text-center">
             自動匹配產品列表與價格，快速生成報價結果
             <br />
-            <span className="text-red-500 font-semibold">按 ESC 鍵可清除所有資料</span>
+            <span className="text-red-500 font-semibold text-lg">⚠️ 按 ESC 鍵可清除所有資料</span>
+            <br />
+            <Button 
+              onClick={testClear} 
+              variant="ghost" 
+              size="sm" 
+              className="mt-2 text-xs"
+            >
+              🧪 測試清除功能
+            </Button>
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -421,6 +456,9 @@ function App() {
                 placeholder="例如:&#10;UNLOCKED&#10;IPHONE 15 128GB 1 5000&#10;IPHONE 15 PRO 256GB 1 7000"
                 rows={15}
                 className="font-mono"
+                onKeyDown={(e) => {
+                  console.log('📝 Textarea keydown:', e.key);
+                }}
               />
             </div>
             <div>
@@ -432,6 +470,9 @@ function App() {
                 placeholder="例如:&#10;1&#9;IPHONE 15 128GB BLUE&#10;2&#9;IPHONE 15 PRO 256GB BLACK"
                 rows={15}
                 className="font-mono"
+                onKeyDown={(e) => {
+                  console.log('📝 Textarea keydown:', e.key);
+                }}
               />
             </div>
           </div>
@@ -463,6 +504,9 @@ function App() {
                 readOnly
                 rows={10}
                 className="font-mono bg-gray-50"
+                onKeyDown={(e) => {
+                  console.log('📋 Result textarea keydown:', e.key);
+                }}
               />
               <div className="absolute top-2 right-2 flex space-x-2">
                 <Button
