@@ -14,48 +14,58 @@ function App() {
   const [isLocked, setIsLocked] = useState(false)
   const [lockedResult, setLockedResult] = useState('')
 
-  // 1. 定義清除函數 (使用 useCallback)
+  // --- 核心清除功能 (使用 useCallback 確保穩定性) ---
   const clearAll = useCallback(() => {
-    console.log("執行清除動作！") // 用來測試是否有觸發
+    console.log("🚀 觸發清除功能！")
+    
+    // 1. 清空所有狀態
     setPriceList('')
     setProductList('')
     setMatchResult('')
     setLockedResult('')
     setStats({ matched: 0, unmatched: 0, total: 0 })
     setIsLocked(false)
+    
+    // 2. 滾動到頂部
     window.scrollTo({ top: 0, behavior: 'smooth' })
+
+    // 3. 強制移除輸入框焦點 (避免游標還在閃爍)
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
   }, [])
 
-  // 2. 定義輸入框專用的按鍵處理函數
-  const handleInputKeyDown = (e) => {
-    // 如果正在使用中文輸入法選字 (isComposing)，則不觸發
-    if (e.nativeEvent.isComposing) return;
-
-    if (e.key === 'Escape') {
-      console.log("在輸入框內偵測到 ESC");
-      e.preventDefault(); // 防止瀏覽器預設行為
-      e.stopPropagation(); // 停止事件冒泡（雖然這裡不需要，但保險）
-      
-      // 執行清除
-      clearAll();
-      
-      // 讓輸入框失去焦點 (Blur)，避免游標還在裡面閃爍
-      e.currentTarget.blur();
-    }
-  }
-
-  // 3. 保留 Window 全局監聽 (以防焦點不在輸入框時也要能按 ESC)
+  // --- 🌟 關鍵修復：全域強制 ESC 監聽器 ---
   useEffect(() => {
-    const handleGlobalKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        clearAll();
+    const handleGlobalKeyDown = (event) => {
+      // 檢查 1: 如果正在打中文 (IME 輸入法模式)，不要清除
+      if (event.nativeEvent.isComposing) {
+        return
+      }
+
+      // 檢查 2: 確認按鍵是 ESC
+      if (event.key === 'Escape') {
+        console.log("⚡️ 捕捉到 ESC 鍵")
+        
+        // 阻止瀏覽器預設行為
+        event.preventDefault()
+        
+        // 執行清除
+        clearAll()
       }
     }
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [clearAll]);
 
-  // --- 其他邏輯函數保持不變 ---
+    // ⚠️ 重點：使用 { capture: true } 
+    // 這會讓事件在到達 Textarea 之前就被 Window 攔截
+    window.addEventListener('keydown', handleGlobalKeyDown, { capture: true })
+
+    // 清理監聽器
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown, { capture: true })
+    }
+  }, [clearAll])
+
+  // --- 輔助邏輯函數 (保持不變) ---
   const applyDeductions = (basePrice, remarks) => {
     let finalPrice = basePrice
     finalPrice -= 15
@@ -243,6 +253,8 @@ function App() {
     setLockedResult(results.join('\n'))
   }
 
+  // --- Effects ---
+
   useEffect(() => {
     if (priceList.trim() && productList.trim()) {
       const timer = setTimeout(() => {
@@ -268,6 +280,7 @@ function App() {
     }
   }, [matchResult])
 
+  // --- UI Actions ---
   const copyToClipboard = async () => {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -296,6 +309,7 @@ function App() {
   return (
     <div className="min-h-screen bg-white p-4 md:p-6">
       <div className="max-w-7xl mx-auto">
+        {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl md:text-5xl font-bold text-gray-800 mb-3">
             產品價格匹配系統
@@ -305,6 +319,7 @@ function App() {
           </p>
         </div>
 
+        {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Price List Input */}
           <Card className="border border-gray-300">
@@ -335,7 +350,6 @@ function App() {
                 className="h-[300px] overflow-y-auto font-mono text-sm bg-white border-gray-300 resize-none"
                 value={priceList}
                 onChange={(e) => setPriceList(e.target.value)}
-                onKeyDown={handleInputKeyDown} // <--- 重點：直接綁定
               />
             </CardContent>
           </Card>
@@ -352,12 +366,12 @@ function App() {
                 className="h-[300px] overflow-y-auto font-mono text-sm bg-white border-gray-300 resize-none"
                 value={productList}
                 onChange={(e) => setProductList(e.target.value)}
-                onKeyDown={handleInputKeyDown} // <--- 重點：直接綁定
               />
             </CardContent>
           </Card>
         </div>
 
+        {/* Results */}
         {matchResult && (
           <Card className="border border-gray-300">
             <CardHeader className="pb-3">
@@ -382,6 +396,7 @@ function App() {
           </Card>
         )}
 
+        {/* Locked Results */}
         {isLocked && lockedResult && (
           <Card className="border border-blue-300 bg-blue-50/30 mt-6">
             <CardHeader className="pb-3">
@@ -396,6 +411,7 @@ function App() {
           </Card>
         )}
 
+        {/* Footer */}
         <div className="mt-8 text-center text-sm text-gray-500">
           <p>© 2025 產品價格匹配系統 - 快速、準確、高效</p>
         </div>
