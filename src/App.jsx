@@ -1,26 +1,42 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Button } from '@/components/ui/button.jsx';
-import { Textarea } from '@/components/ui/textarea.jsx';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
-import { Check, Trash2, Lock, Unlock } from 'lucide-react';
-import './App.css';
+import { useState, useEffect, useCallback } from 'react'
+import { Button } from '@/components/ui/button.jsx'
+import { Textarea } from '@/components/ui/textarea.jsx'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
+import { Check, Trash2, Lock, Unlock } from 'lucide-react'
+import './App.css'
 
 function App() {
-  const [priceList, setPriceList] = useState('');
-  const [productList, setProductList] = useState('');
-  const [matchResult, setMatchResult] = useState('');
-  const [stats, setStats] = useState({ matched: 0, unmatched: 0, total: 0 });
-  const [copied, setCopied] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
-  const [lockedResult, setLockedResult] = useState('');
+  const [priceList, setPriceList] = useState('')
+  const [productList, setProductList] = useState('')
+  const [matchResult, setMatchResult] = useState('')
+  const [stats, setStats] = useState({ matched: 0, unmatched: 0, total: 0 })
+  const [copied, setCopied] = useState(false)
+  const [isLocked, setIsLocked] = useState(false)
+  const [lockedResult, setLockedResult] = useState('')
 
-  const resultRef = useRef(null);
+  // --- Helper Functions (Moved up so they can be used in Effects) ---
+
+  // Clear all inputs and scroll to top
+  // WRAPPED IN USECALLBACK TO FIX ESC KEY ISSUE
+  const clearAll = useCallback(() => {
+    setPriceList('')
+    setProductList('')
+    setMatchResult('')
+    setLockedResult('')
+    setStats({ matched: 0, unmatched: 0, total: 0 })
+    setIsLocked(false)
+    // Scroll to top of the page
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
 
   // Apply deductions based on remarks
   const applyDeductions = (basePrice, remarks) => {
-    let finalPrice = basePrice;
-    finalPrice -= 15; // 基礎扣減：15 元配件費
-
+    let finalPrice = basePrice
+    
+    // Basic deduction: 15 yuan accessory fee
+    finalPrice -= 15
+    
+    // Keyword-based deductions
     const deductions = {
       '小花': -100,
       '花機': -150,
@@ -30,507 +46,617 @@ function App() {
       '過保': -200,
       '黑機': -200,
       '配置鎖': -300
-    };
-
+    }
+    
+    // Check for keywords in remarks
     for (const [keyword, amount] of Object.entries(deductions)) {
       if (remarks.includes(keyword)) {
-        finalPrice += amount;
+        finalPrice += amount  // amount is already negative
       }
     }
+    
+    return finalPrice
+  }
 
-    return finalPrice;
-  };
+  // Extract capacity from product description
+  const extractCapacity = (description) => {
+    const capacityMatch = description.match(/\b(\d+(?:GB|TB))\b/i)
+    return capacityMatch ? capacityMatch[1].toUpperCase() : ''
+  }
+
+  // Extract model name without capacity (and optionally without color)
+  const extractModelName = (text, removeColor = false) => {
+    let model = text.replace(/\b\d+(?:GB|TB)\b/gi, '').trim()
+    
+    if (removeColor) {
+      const colors = ['BLACK', 'WHITE', 'BLUE', 'ORANGE', 'SILVER', 'GOLD', 'NATURAL', 'DESERT', 
+                      'PINK', 'ULTRAMARINE', 'GRAY', 'GREY', 'GREEN', 'RED', 'PURPLE', 
+                      'YELLOW', 'LAVENDER', 'SAGE', 'MIDNIGHT', 'STARLIGHT', 'TITANIUM',
+                      'SPACE', 'ROSE', 'CORAL', 'TEAL', 'INDIGO', 'CRIMSON']
+      
+      for (const color of colors) {
+        const regex = new RegExp(`\\b${color}\\b\\s*$`, 'i')
+        model = model.replace(regex, '').trim()
+      }
+    }
+    
+    return model.toUpperCase().replace(/\s+/g, ' ')
+  }
+
+  // Check if category requires color matching
+  const needsColorMatch = (category, priceModel = '') => {
+    const cat = category.toUpperCase()
+    const model = priceModel.toUpperCase()
+    
+    // UNLOCKED categories always need color matching
+    if (cat.includes('UNLOCKED')) return true
+    
+    // LOCKED categories: only match color if category contains N/A or ACT
+    if (cat.includes('LOCKED')) {
+      return cat.includes('N/A') || cat.includes('ACT')
+    }
+    
+    // DEFAULT category doesn't need color matching
+    if (cat === 'DEFAULT') return false
+    
+    // Other categories need color matching by default
+    return true
+  }
+
+  // Check if product needs capacity matching
+  const needsCapacityMatch = (description) => {
+    const upper = description.toUpperCase()
+    return upper.includes('IPHONE') || upper.includes('IPAD') || upper.includes('MACBOOK')
+  }
+
+  // Check if two model names match exactly
+  const modelsMatch = (productModel, priceModel) => {
+    const p = productModel.toUpperCase().trim()
+    const pr = priceModel.toUpperCase().trim()
+    
+    if (p === pr) return true
+    
+    const pWords = p.split(/\s+/).filter(w => w.length > 0)
+    const prWords = pr.split(/\s+/).filter(w => w.length > 0)
+    
+    if (pWords.length !== prWords.length) return false
+    
+    for (let i = 0; i < pWords.length; i++) {
+      if (pWords[i] !== prWords[i]) return false
+    }
+    
+    return true
+  }
 
   // Parse price list into structured data
   const parsePriceList = (text) => {
-    const lines = text.trim().split('\n');
-    const prices = [];
-    let currentCategory = 'DEFAULT';
+    const lines = text.trim().split('\n')
+    const prices = []
+    let currentCategory = 'DEFAULT'
 
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+      const trimmed = line.trim()
+      if (!trimmed) continue
 
-      const upperLine = trimmed.toUpperCase();
-      const isHeader =
-        (upperLine.includes('CAP') || upperLine.includes('CAPACITY')) &&
-        (upperLine.includes('QTY') || upperLine.includes('QUANTITY')) &&
-        (upperLine.includes('HKD') ||
-          upperLine.includes('USD') ||
-          upperLine.includes('CNY') ||
-          upperLine.includes('RMB') ||
-          upperLine.includes('PRICE'));
-
+      // Skip header rows (CAP QTY HKD, etc.) - check this FIRST
+      const upperLine = trimmed.toUpperCase()
+      const isHeader = (
+        (upperLine.includes('CAP') || upperLine.includes('CAPACITY') || upperLine.includes('容量')) &&
+        (upperLine.includes('QTY') || upperLine.includes('QUANTITY') || upperLine.includes('數量')) &&
+        (upperLine.includes('HKD') || upperLine.includes('USD') || upperLine.includes('CNY') || 
+         upperLine.includes('RMB') || upperLine.includes('PRICE') || upperLine.includes('人民幣'))
+      )
+      
       if (isHeader) {
-        const parts = trimmed.split('\t');
+        // Extract category from first column if present
+        const parts = trimmed.split('\t')
         if (parts.length > 1) {
-          const firstCol = parts[0].trim();
-          if (
-            firstCol === firstCol.toUpperCase() &&
-            !firstCol.includes('CAP') &&
-            !firstCol.includes('QTY') &&
-            !firstCol.includes('HKD') &&
-            !firstCol.includes('USD') &&
-            !firstCol.includes('CNY') &&
-            !firstCol.includes('RMB')
-          ) {
-            currentCategory = firstCol;
+          const firstCol = parts[0].trim()
+          // Check if first column looks like a category (all uppercase, not a header keyword)
+          if (firstCol === firstCol.toUpperCase() && 
+              !firstCol.includes('CAP') && 
+              !firstCol.includes('QTY') && 
+              !firstCol.includes('HKD') && 
+              !firstCol.includes('USD') && 
+              !firstCol.includes('CNY') && 
+              !firstCol.includes('RMB')) {
+            currentCategory = firstCol
           }
         }
-        continue;
+        continue
       }
 
-      if (!trimmed.includes('\t') && trimmed === trimmed.toUpperCase()) {
-        currentCategory = trimmed;
-        continue;
+      // Check if it's a category line (no tabs, all uppercase, not a header), or a known Chinese category
+      const chineseCategories = ['IPAD 原封沒激活', 'IPAD 激活全套有鎖']
+      if ((!trimmed.includes('\t') && trimmed === trimmed.toUpperCase()) || chineseCategories.includes(trimmed)) {
+        currentCategory = trimmed
+        continue
       }
 
-      const parts = trimmed.split('\t');
+      // Parse price line
+      const parts = trimmed.split(/\s+/)
       if (parts.length >= 3) {
-        const model = parts[0].trim();
-        const secondCol = parts[1].trim();
-        const isPartNumber =
-          /^[A-Z0-9]{6,10}$/i.test(secondCol) && !secondCol.match(/\d+(GB|TB)$/i);
-
-        let capacity = '';
-        let qty = 0;
-        let price = 0;
-
+        const model = parts[0].trim()
+        const secondCol = parts[1].trim()
+        const isPartNumber = /^[A-Z0-9]{6,10}$/i.test(secondCol) && !secondCol.match(/\d+(GB|TB)$/i)
+        
+        let capacity = ''
+        let qty = 0
+        let price = 0
+        
         if (isPartNumber) {
-          qty = parseInt(parts[2]) || 0;
-          price = parseFloat(parts[3]) || 0;
+          qty = parseInt(parts[2]) || 0
+          price = parseFloat(parts[3]) || 0
         } else {
-          capacity = secondCol;
-          qty = parseInt(parts[2]) || 0;
-          price = parseFloat(parts[3]) || 0;
+          capacity = secondCol
+          qty = parseInt(parts[2]) || 0
+          price = parseFloat(parts[3]) || 0
         }
 
         prices.push({
           category: currentCategory,
-          model,
-          capacity,
-          qty,
-          price
-        });
+          model: model,
+          capacity: capacity,
+          qty: qty,
+          price: price
+        })
       }
     }
 
-    return prices;
-  };
+    return prices
+  }
 
   // Parse product list with line numbers
   const parseProductList = (text) => {
-    const lines = text.trim().split('\n');
-    const products = [];
-    let currentCategory = 'DEFAULT';
+    const lines = text.trim().split('\n')
+    const products = []
+    let currentCategory = 'DEFAULT'
 
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+      const trimmed = line.trim()
+      if (!trimmed) continue
 
-      const upperLine = trimmed.toUpperCase();
+      // Skip header rows
+      const upperLine = trimmed.toUpperCase()
       if (upperLine.includes('CAP') && upperLine.includes('QTY') && upperLine.includes('HKD')) {
-        continue;
+        continue
       }
 
-      if (!trimmed.includes('\t') && trimmed === trimmed.toUpperCase()) {
-        currentCategory = trimmed;
-        continue;
+      // Check if it's a category line
+      const chineseCategories = ['IPAD 原封沒激活', 'IPAD 激活全套有鎖']
+      if ((!trimmed.includes('\t') && trimmed === trimmed.toUpperCase()) || chineseCategories.includes(trimmed)) {
+        currentCategory = trimmed
+        continue
       }
 
-      const parts = trimmed.split('\t');
+      // Parse product line with line number
+      const parts = trimmed.split('\t')
+      
       if (parts.length >= 2) {
-        const lineNum = parts[0].trim();
-        let remarks = '';
-        let description = '';
-
+        const lineNum = parts[0].trim()
+        let remarks = ''
+        let description = ''
+        
         if (parts.length === 2) {
-          description = parts[1].trim();
+          description = parts[1].trim()
         } else if (parts.length >= 3) {
-          remarks = parts[1].trim();
-          description = parts[2].trim();
+          remarks = parts[1].trim() // B欄備註
+          description = parts[2].trim()
         }
-
+        
         if (lineNum && description) {
           products.push({
             lineNum,
             remarks,
             description,
             category: currentCategory
-          });
+          })
         }
       }
     }
 
-    return products;
-  };
+    return products
+  }
 
-  // Extract capacity from product description
-  const extractCapacity = (description) => {
-    const capacityMatch = description.match(/\b(\d+(?:GB|TB))\b/i);
-    return capacityMatch ? capacityMatch[1].toUpperCase() : '';
-  };
-
-  // Extract model name without capacity (and optionally without color)
-  const extractModelName = (text, removeColor = false) => {
-    let model = text.replace(/\b\d+(?:GB|TB)\b/gi, '').trim();
-
-    if (removeColor) {
-      const colors = [
-        'BLACK', 'WHITE', 'BLUE', 'ORANGE', 'SILVER', 'GOLD', 'NATURAL', 'DESERT',
-        'PINK', 'ULTRAMARINE', 'GRAY', 'GREY', 'GREEN', 'RED', 'PURPLE',
-        'YELLOW', 'LAVENDER', 'SAGE', 'MIDNIGHT', 'STARLIGHT', 'TITANIUM',
-        'SPACE', 'ROSE', 'CORAL', 'TEAL', 'INDIGO', 'CRIMSON'
-      ];
-      for (const color of colors) {
-        const regex = new RegExp(`\\b${color}\\b\\s*$`, 'i');
-        model = model.replace(regex, '').trim();
-      }
-    }
-
-    return model.toUpperCase().replace(/\s+/g, ' ');
-  };
-
-  const needsCapacityMatch = (description) => {
-    return description.includes('IPHONE 15') || description.includes('IPHONE 16');
-  };
-
-  const needsColorMatch = (category, model) => {
-    return (
-      !['LOCKED', 'UNLOCKED'].includes(category) &&
-      (model.includes('IPHONE 15') || model.includes('IPHONE 16') || model.includes('IPHONE 17'))
-    );
-  };
-
-  const modelsMatch = (productModel, priceModel) => {
-    const normalize = (str) => str.replace(/\s+/g, '').toUpperCase();
-    return (
-      normalize(productModel).includes(normalize(priceModel)) ||
-      normalize(priceModel).includes(normalize(productModel))
-    );
-  };
-
-  // Process locked mode matching with deductions
-  const processLockedMatching = () => {
-    const prices = parsePriceList(priceList);
-    const products = parseProductList(productList);
-
-    const results = [];
-    let matchedCount = 0;
-    let unmatchedCount = 0;
-    let lastCategory = null;
+  // Match products with prices
+  const matchProducts = () => {
+    const prices = parsePriceList(priceList)
+    const products = parseProductList(productList)
+    
+    const results = []
+    let matchedCount = 0
+    let unmatchedCount = 0
+    let lastCategory = null
 
     for (const product of products) {
-      const productCapacity = extractCapacity(product.description);
-      const requiresCapacity = needsCapacityMatch(product.description);
-
-      let matchedPrice = null;
+      const productCapacity = extractCapacity(product.description)
+      const requiresCapacity = needsCapacityMatch(product.description)
+      
+      let matchedPrice = null
 
       for (const price of prices) {
-        if (price.category !== product.category) continue;
+        if (price.category !== product.category) continue
 
-        const requiresColor = needsColorMatch(product.category, price.model);
-        const productModel = extractModelName(product.description, !requiresColor);
-        const priceModel = extractModelName(price.model, !requiresColor);
-
-        if (!modelsMatch(productModel, priceModel)) continue;
-
+        // Check if this specific price item needs color matching
+        const requiresColor = needsColorMatch(product.category, price.model)
+        
+        const productModel = extractModelName(product.description, !requiresColor)
+        const priceModel = extractModelName(price.model, !requiresColor)
+        
+        if (!modelsMatch(productModel, priceModel)) {
+          continue
+        }
+        
         if (requiresCapacity) {
-          const priceCapacity = price.capacity || extractCapacity(price.model);
+          // If price.capacity is empty, extract from price.model
+          const priceCapacity = price.capacity || extractCapacity(price.model)
           if (priceCapacity && productCapacity && priceCapacity !== productCapacity) {
-            continue;
+            continue
           }
         }
 
-        matchedPrice = price;
-        break;
+        matchedPrice = price
+        break
       }
 
       if (matchedPrice !== null) {
+        // Add double line break between different categories
         if (lastCategory !== null && lastCategory !== product.category) {
-          results.push('');
-          results.push('');
+          results.push('')  // Empty line
+          results.push('')  // Second empty line
         }
-
-        const remarks = product.remarks || '';
-        const deductedPrice = applyDeductions(matchedPrice.price, remarks);
-
-        results.push(`${product.lineNum}\t${deductedPrice}`);
-        matchedCount++;
-        lastCategory = product.category;
+        
+        results.push(`${product.lineNum}\t${matchedPrice.price}`)
+        matchedCount++
+        lastCategory = product.category
       } else {
-        unmatchedCount++;
+        unmatchedCount++
+        // Don't add unmatched lines to results
       }
     }
 
-    setLockedResult(results.join('\n'));
-  };
+    setMatchResult(results.join('\n'))
+    setStats({
+      matched: matchedCount,
+      unmatched: unmatchedCount,
+      total: products.length
+    })
+  }
 
-  // 使用 useCallback 確保函數引用穩定
-  const handleClearAll = useCallback(() => {
-    console.log('🧹 Clearing all data...');
-    setPriceList('');
-    setProductList('');
-    setMatchResult('');
-    setLockedResult('');
-    setStats({ matched: 0, unmatched: 0, total: 0 });
-    setIsLocked(false);
-    setCopied(false);
+  // Process locked mode matching with deductions
+  const processLockedMatching = () => {
+    const prices = parsePriceList(priceList)
+    const products = parseProductList(productList)
+    
+    const results = []
+    let matchedCount = 0
+    let unmatchedCount = 0
+    let lastCategory = null
 
-    localStorage.clear();
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    console.log('✅ All data cleared successfully');
-  }, []);
-
-  // 多重 ESC 監聽保險
-  useEffect(() => {
-    const handleEscape = (e) => {
-      console.log('🔑 Key event:', {
-        key: e.key,
-        code: e.code,
-        keyCode: e.keyCode,
-        type: e.type,
-        target: e.target.tagName
-      });
+    for (const product of products) {
+      const productCapacity = extractCapacity(product.description)
+      const requiresCapacity = needsCapacityMatch(product.description)
       
-      // 多種判斷方式
-      const isEsc = 
-        e.key === 'Escape' || 
-        e.key === 'Esc' || 
-        e.code === 'Escape' ||
-        e.keyCode === 27;
-      
-      if (isEsc) {
-        console.log('🚨 ESC detected! Clearing...');
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        handleClearAll();
-        return false;
+      let matchedPrice = null
+
+      for (const price of prices) {
+        if (price.category !== product.category) continue
+
+        // Check if this specific price item needs color matching
+        const requiresColor = needsColorMatch(product.category, price.model)
+        
+        const productModel = extractModelName(product.description, !requiresColor)
+        const priceModel = extractModelName(price.model, !requiresColor)
+        
+        if (!modelsMatch(productModel, priceModel)) {
+          continue
+        }
+        
+        if (requiresCapacity) {
+          // If price.capacity is empty, extract from price.model
+          const priceCapacity = price.capacity || extractCapacity(price.model)
+          if (priceCapacity && productCapacity && priceCapacity !== productCapacity) {
+            continue
+          }
+        }
+
+        matchedPrice = price
+        break
       }
-    };
 
-    // 方法 1: document keydown (capture)
-    document.addEventListener('keydown', handleEscape, true);
-    
-    // 方法 2: document keyup (capture) - 備用
-    document.addEventListener('keyup', handleEscape, true);
-    
-    // 方法 3: window keydown (capture) - 最高優先級
-    window.addEventListener('keydown', handleEscape, true);
-    
-    console.log('👂 Multiple ESC listeners attached');
-    
-    return () => {
-      document.removeEventListener('keydown', handleEscape, true);
-      document.removeEventListener('keyup', handleEscape, true);
-      window.removeEventListener('keydown', handleEscape, true);
-      console.log('👋 ESC listeners removed');
-    };
-  }, [handleClearAll]);
+      if (matchedPrice !== null) {
+        // Add double line break between different categories
+        if (lastCategory !== null && lastCategory !== product.category) {
+          results.push('')  // Empty line
+          results.push('')  // Second empty line
+        }
+        
+        // Use remarks from parsed product data (B欄備註)
+        const remarks = product.remarks || ''
+        
+        // Apply deductions
+        const deductedPrice = applyDeductions(matchedPrice.price, remarks)
+        
+        results.push(`${product.lineNum}\t${deductedPrice}`)
+        matchedCount++
+        lastCategory = product.category
+      } else {
+        unmatchedCount++
+      }
+    }
 
-  // 測試按鈕 - 用來確認 handleClearAll 本身是否工作
-  const testClear = () => {
-    console.log('🧪 Test button clicked');
-    handleClearAll();
-  };
+    setLockedResult(results.join('\n'))
+  }
+
+  // --- Effects ---
+
+  // Auto-match when both inputs have content
+  useEffect(() => {
+    if (priceList.trim() && productList.trim()) {
+      // Delay to avoid too frequent updates
+      const timer = setTimeout(() => {
+        matchProducts()
+        // Also process locked matching if locked mode is enabled
+        if (isLocked) {
+          processLockedMatching()
+        }
+      }, 500)
+      return () => clearTimeout(timer)
+    }
+  }, [priceList, productList, isLocked])
 
   // Auto-copy result to clipboard when matchResult changes
   useEffect(() => {
-    if (matchResult && matchResult.trim()) {
+    if (matchResult) {
       const autoCopy = async () => {
         try {
-          await new Promise((resolve) => setTimeout(resolve, 300));
           if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(matchResult);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-            console.log('Auto-copy successful');
+            await navigator.clipboard.writeText(matchResult)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
           }
         } catch (err) {
-          console.error('Auto-copy failed:', err);
+          console.error('Auto-copy failed:', err)
         }
-      };
-      autoCopy();
+      }
+      autoCopy()
     }
-  }, [matchResult]);
+  }, [matchResult])
 
-  // Main matching logic
+  // Listen for ESC key to clear all data
+  // UPDATED: Now depends on [clearAll] and handles blurring
   useEffect(() => {
-    if (priceList.trim() === '' || productList.trim() === '') {
-      setMatchResult('');
-      setStats({ matched: 0, unmatched: 0, total: 0 });
-      return;
-    }
-
-    const prices = parsePriceList(priceList);
-    const products = parseProductList(productList);
-
-    let currentMatchResult = [];
-    let matchedCount = 0;
-    let unmatchedCount = 0;
-    let currentCategory = null;
-
-    for (const product of products) {
-      const productCapacity = extractCapacity(product.description);
-      const requiresCapacity = needsCapacityMatch(product.description);
-
-      let bestMatchedPrice = null;
-
-      for (const price of prices) {
-        if (price.category !== product.category) continue;
-
-        const requiresColor = needsColorMatch(product.category, price.model);
-        const productModel = extractModelName(product.description, !requiresColor);
-        const priceModel = extractModelName(price.model, !requiresColor);
-
-        if (!modelsMatch(productModel, priceModel)) continue;
-
-        if (requiresCapacity) {
-          const priceCapacity = price.capacity || extractCapacity(price.model);
-          if (priceCapacity && productCapacity && priceCapacity !== productCapacity) {
-            continue;
-          }
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        clearAll()
+        // Remove focus from any active input to avoid typing issues
+        if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
         }
-
-        bestMatchedPrice = price;
-        break;
       }
+    }
+    
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [clearAll])
 
-      if (bestMatchedPrice) {
-        if (currentCategory !== null && currentCategory !== product.category) {
-          currentMatchResult.push('');
-        }
-        const remarks = product.remarks || '';
-        const deductedPrice = applyDeductions(bestMatchedPrice.price, remarks);
-        currentMatchResult.push(`${product.lineNum}\t${deductedPrice}`);
-        matchedCount++;
-        currentCategory = product.category;
+  // --- UI Actions ---
+
+  // Copy result to clipboard with button feedback
+  const copyToClipboard = async () => {
+    try {
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(matchResult)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
       } else {
-        unmatchedCount++;
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea')
+        textArea.value = matchResult
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        textArea.style.top = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        
+        try {
+          document.execCommand('copy')
+          setCopied(true)
+          setTimeout(() => setCopied(false), 2000)
+        } catch (err) {
+          console.error('Fallback copy failed:', err)
+          alert('複製失敗，請手動選擇並複製結果')
+        }
+        
+        document.body.removeChild(textArea)
       }
+    } catch (err) {
+      console.error('Copy failed:', err)
+      alert('複製失敗，請手動選擇並複製結果')
     }
-
-    setMatchResult(currentMatchResult.join('\n'));
-    setStats({ matched: matchedCount, unmatched: unmatchedCount, total: products.length });
-  }, [priceList, productList, isLocked]);
-
-  const handleLockToggle = () => {
-    setIsLocked((prev) => !prev);
-    if (!isLocked) {
-      processLockedMatching();
-    } else {
-      setLockedResult('');
-    }
-  };
+  }
 
   return (
-    <div className="container mx-auto p-4">
-      <Card className="w-full max-w-4xl mx-auto">
-        <CardHeader>
-          <CardTitle className="text-3xl font-bold text-center">產品價格匹配系統</CardTitle>
-          <CardDescription className="text-center">
+    <div className="min-h-screen bg-white p-4 md:p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-4xl md:text-5xl font-bold text-gray-800 mb-3">
+            產品價格匹配系統
+          </h1>
+          <p className="text-lg text-gray-600">
             自動匹配產品列表與價格，快速生成報價結果
-            <br />
-            <span className="text-red-500 font-semibold text-lg">⚠️ 按 ESC 鍵可清除所有資料</span>
-            <br />
-            <Button 
-              onClick={testClear} 
-              variant="ghost" 
-              size="sm" 
-              className="mt-2 text-xs"
-            >
-              🧪 測試清除功能
-            </Button>
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <h2 className="text-xl font-semibold mb-2">第一步：輸入價格列表</h2>
-              <p className="text-sm text-gray-500 mb-2">貼上您的 PRICE LIST (格式: 類別、型號、容量/Part Number、數量、價格)</p>
-              <Textarea
-                value={priceList}
-                onChange={(e) => setPriceList(e.target.value)}
-                placeholder="例如:&#10;UNLOCKED&#10;IPHONE 15 128GB 1 5000&#10;IPHONE 15 PRO 256GB 1 7000"
-                rows={15}
-                className="font-mono"
-                onKeyDown={(e) => {
-                  console.log('📝 Textarea keydown:', e.key);
-                }}
-              />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold mb-2">第二步：輸入產品列表</h2>
-              <p className="text-sm text-gray-500 mb-2">貼上您的 LIST (格式: 行號、產品描述, 支援備註)</p>
-              <Textarea
-                value={productList}
-                onChange={(e) => setProductList(e.target.value)}
-                placeholder="例如:&#10;1&#9;IPHONE 15 128GB BLUE&#10;2&#9;IPHONE 15 PRO 256GB BLACK"
-                rows={15}
-                className="font-mono"
-                onKeyDown={(e) => {
-                  console.log('📝 Textarea keydown:', e.key);
-                }}
-              />
-            </div>
-          </div>
+          </p>
+        </div>
 
-          <div className="flex items-center justify-between mt-6">
-            <div className="flex items-center space-x-2">
-              <Button
-                onClick={handleLockToggle}
-                variant={isLocked ? 'destructive' : 'outline'}
-                className="flex items-center"
-              >
-                {isLocked ? <Lock className="mr-2 h-4 w-4" /> : <Unlock className="mr-2 h-4 w-4" />}
-                {isLocked ? '已鎖定' : '未鎖定'}
-              </Button>
-              {isLocked && <span className="text-sm text-gray-500">（鎖定模式已啟用，僅匹配已鎖定產品）</span>}
-            </div>
-            <div className="text-sm text-gray-600">
-              匹配: {stats.matched} / 未匹配: {stats.unmatched} / 總計: {stats.total}
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <h2 className="text-xl font-semibold mb-2">匹配結果</h2>
-            <p className="text-sm text-gray-500 mb-2">系統已完成自動匹配</p>
-            <div className="relative">
-              <Textarea
-                ref={resultRef}
-                value={isLocked ? lockedResult : matchResult}
-                readOnly
-                rows={10}
-                className="font-mono bg-gray-50"
-                onKeyDown={(e) => {
-                  console.log('📋 Result textarea keydown:', e.key);
-                }}
-              />
-              <div className="absolute top-2 right-2 flex space-x-2">
-                <Button
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Price List Input */}
+          <Card className="border border-gray-300">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                <div>
+                  <CardTitle className="text-lg font-medium text-gray-700">
+                    第一步：輸入價格列表
+                  </CardTitle>
+                  <CardDescription className="text-sm text-gray-500">
+                    貼上您的 PRICE LIST（格式：類別、型號、容量/Part Number、數量、價格）
+                  </CardDescription>
+                </div>
+                <Button 
                   onClick={() => {
-                    navigator.clipboard.writeText(isLocked ? lockedResult : matchResult);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
+                    setIsLocked(!isLocked)
+                    if (!isLocked && priceList.trim() && productList.trim()) {
+                      // If turning on locked mode and both inputs have content, process immediately
+                      setTimeout(() => processLockedMatching(), 100)
+                    }
                   }}
-                  variant="secondary"
+                  variant={isLocked ? "default" : "outline"}
                   size="sm"
+                  className={isLocked ? 
+                    'bg-blue-600 hover:bg-blue-700 text-white' : 
+                    'border-gray-300 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700'
+                  }
                 >
-                  {copied ? <Check className="mr-2 h-4 w-4" /> : null}
-                  {copied ? '已複製' : '複製結果'}
-                </Button>
-                <Button onClick={handleClearAll} variant="outline" size="sm">
-                  <Trash2 className="mr-2 h-4 w-4" /> 清除
+                  {isLocked ? (
+                    <>
+                      <Lock className="w-4 h-4 mr-2" />
+                      有鎖
+                    </>
+                  ) : (
+                    <>
+                      <Unlock className="w-4 h-4 mr-2" />
+                      有鎖
+                    </>
+                  )}
                 </Button>
               </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                placeholder="UNLOCKED N/A&#10;IPHONE 15 BLACK&#9;128GB&#9;3&#9;3700"
+                className="h-[300px] overflow-y-auto font-mono text-sm focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-gray-400 bg-white border-gray-300 resize-none"
+                value={priceList}
+                onChange={(e) => setPriceList(e.target.value)}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Product List Input */}
+          <Card className="border border-gray-300">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-medium text-gray-700">
+                第二步：輸入產品列表
+              </CardTitle>
+              <CardDescription className="text-sm text-gray-500">
+                貼上您的 LIST（格式：行號、產品描述，支援備注欄）
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                placeholder="UNLOCKED N/A&#10;22&#9;IPHONE 16E 128GB BLACK&#10;23&#9;IPHONE 16E 128GB BLACK"
+                className="h-[300px] overflow-y-auto font-mono text-sm focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-gray-400 bg-white border-gray-300 resize-none"
+                value={productList}
+                onChange={(e) => setProductList(e.target.value)}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Results */}
+        {matchResult && (
+          <Card className="border border-gray-300">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <CardTitle className="text-lg font-medium text-gray-700">
+                    匹配結果
+                  </CardTitle>
+                  <CardDescription className="text-sm text-gray-500">
+                    系統已完成自動匹配
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={copyToClipboard} 
+                    variant="outline" 
+                    size="sm"
+                    className={copied ? 'bg-green-50 border-green-600 text-green-700' : 'border-gray-300'}
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-4 h-4 mr-2" />
+                        已複製
+                      </>
+                    ) : (
+                      '複製結果'
+                    )}
+                  </Button>
+                  <Button 
+                    onClick={clearAll} 
+                    variant="outline" 
+                    size="sm"
+                    className="border-gray-300 hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    清除
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                value={matchResult}
+                readOnly
+                className="h-[300px] overflow-y-auto font-mono text-sm bg-white border-gray-300 resize-none"
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Locked Mode Results */}
+        {isLocked && lockedResult && (
+          <Card className="border border-blue-300 bg-blue-50/30 mt-6">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <CardTitle className="text-lg font-medium text-blue-700 flex items-center">
+                    <Lock className="w-5 h-5 mr-2" />
+                    有鎖模式扣減結果
+                  </CardTitle>
+                  <CardDescription className="text-sm text-blue-600">
+                    已套用配件費用扣減（-15元）及備註關鍵字扣減
+                  </CardDescription>
+                </div>
+                <Button 
+                  onClick={() => navigator.clipboard.writeText(lockedResult)} 
+                  variant="outline" 
+                  size="sm"
+                  className="border-blue-300 hover:bg-blue-100"
+                >
+                  複製扣減結果
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                value={lockedResult}
+                readOnly
+                className="h-[300px] overflow-y-auto font-mono text-sm bg-white border-blue-300 resize-none"
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Footer */}
+        <div className="mt-8 text-center text-sm text-gray-500">
+          <p>© 2025 產品價格匹配系統 - 快速、準確、高效</p>
+        </div>
+      </div>
     </div>
-  );
+  )
 }
 
-export default App;
+export default App
