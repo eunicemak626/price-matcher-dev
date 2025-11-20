@@ -14,12 +14,9 @@ function App() {
   const [isLocked, setIsLocked] = useState(false)
   const [lockedResult, setLockedResult] = useState('')
 
-  // --- Helper Functions ---
-
-  // Clear all inputs and scroll to top
-  // 使用 useCallback 確保函數穩定
+  // 1. 定義清除函數 (使用 useCallback)
   const clearAll = useCallback(() => {
-    console.log("Executing clearAll...") // Debug log
+    console.log("執行清除動作！") // 用來測試是否有觸發
     setPriceList('')
     setProductList('')
     setMatchResult('')
@@ -27,45 +24,60 @@ function App() {
     setStats({ matched: 0, unmatched: 0, total: 0 })
     setIsLocked(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-    
-    // 強制讓所有輸入框失去焦點
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur()
-    }
   }, [])
 
-  // Apply deductions based on remarks
+  // 2. 定義輸入框專用的按鍵處理函數
+  const handleInputKeyDown = (e) => {
+    // 如果正在使用中文輸入法選字 (isComposing)，則不觸發
+    if (e.nativeEvent.isComposing) return;
+
+    if (e.key === 'Escape') {
+      console.log("在輸入框內偵測到 ESC");
+      e.preventDefault(); // 防止瀏覽器預設行為
+      e.stopPropagation(); // 停止事件冒泡（雖然這裡不需要，但保險）
+      
+      // 執行清除
+      clearAll();
+      
+      // 讓輸入框失去焦點 (Blur)，避免游標還在裡面閃爍
+      e.currentTarget.blur();
+    }
+  }
+
+  // 3. 保留 Window 全局監聽 (以防焦點不在輸入框時也要能按 ESC)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        clearAll();
+      }
+    }
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [clearAll]);
+
+  // --- 其他邏輯函數保持不變 ---
   const applyDeductions = (basePrice, remarks) => {
     let finalPrice = basePrice
-    finalPrice -= 15 // Basic deduction
-    
+    finalPrice -= 15
     const deductions = {
       '小花': -100, '花機': -150, '大花': -350, '舊機': -350,
       '低保': -100, '過保': -200, '黑機': -200, '配置鎖': -300
     }
-    
     for (const [keyword, amount] of Object.entries(deductions)) {
-      if (remarks.includes(keyword)) {
-        finalPrice += amount
-      }
+      if (remarks.includes(keyword)) finalPrice += amount
     }
     return finalPrice
   }
 
-  // Extract capacity
   const extractCapacity = (description) => {
     const capacityMatch = description.match(/\b(\d+(?:GB|TB))\b/i)
     return capacityMatch ? capacityMatch[1].toUpperCase() : ''
   }
 
-  // Extract model name
   const extractModelName = (text, removeColor = false) => {
     let model = text.replace(/\b\d+(?:GB|TB)\b/gi, '').trim()
     if (removeColor) {
-      const colors = ['BLACK', 'WHITE', 'BLUE', 'ORANGE', 'SILVER', 'GOLD', 'NATURAL', 'DESERT', 
-                      'PINK', 'ULTRAMARINE', 'GRAY', 'GREY', 'GREEN', 'RED', 'PURPLE', 
-                      'YELLOW', 'LAVENDER', 'SAGE', 'MIDNIGHT', 'STARLIGHT', 'TITANIUM',
-                      'SPACE', 'ROSE', 'CORAL', 'TEAL', 'INDIGO', 'CRIMSON']
+      const colors = ['BLACK', 'WHITE', 'BLUE', 'ORANGE', 'SILVER', 'GOLD', 'NATURAL', 'DESERT', 'PINK', 'ULTRAMARINE', 'GRAY', 'GREY', 'GREEN', 'RED', 'PURPLE', 'YELLOW', 'LAVENDER', 'SAGE', 'MIDNIGHT', 'STARLIGHT', 'TITANIUM', 'SPACE', 'ROSE', 'CORAL', 'TEAL', 'INDIGO', 'CRIMSON']
       for (const color of colors) {
         const regex = new RegExp(`\\b${color}\\b\\s*$`, 'i')
         model = model.replace(regex, '').trim()
@@ -74,7 +86,6 @@ function App() {
     return model.toUpperCase().replace(/\s+/g, ' ')
   }
 
-  // Check if category requires color matching
   const needsColorMatch = (category, priceModel = '') => {
     const cat = category.toUpperCase()
     if (cat.includes('UNLOCKED')) return true
@@ -83,229 +94,154 @@ function App() {
     return true
   }
 
-  // Check capacity match needed
   const needsCapacityMatch = (description) => {
     const upper = description.toUpperCase()
     return upper.includes('IPHONE') || upper.includes('IPAD') || upper.includes('MACBOOK')
   }
 
-  // Model matching logic
   const modelsMatch = (productModel, priceModel) => {
     const p = productModel.toUpperCase().trim()
     const pr = priceModel.toUpperCase().trim()
     if (p === pr) return true
-    
     const pWords = p.split(/\s+/).filter(w => w.length > 0)
     const prWords = pr.split(/\s+/).filter(w => w.length > 0)
     if (pWords.length !== prWords.length) return false
-    
     for (let i = 0; i < pWords.length; i++) {
       if (pWords[i] !== prWords[i]) return false
     }
     return true
   }
 
-  // Parse Price List
   const parsePriceList = (text) => {
     const lines = text.trim().split('\n')
     const prices = []
     let currentCategory = 'DEFAULT'
-
     for (const line of lines) {
       const trimmed = line.trim()
       if (!trimmed) continue
-
       const upperLine = trimmed.toUpperCase()
-      const isHeader = (
-        (upperLine.includes('CAP') || upperLine.includes('CAPACITY') || upperLine.includes('容量')) &&
-        (upperLine.includes('QTY') || upperLine.includes('QUANTITY') || upperLine.includes('數量')) &&
-        (upperLine.includes('HKD') || upperLine.includes('USD') || upperLine.includes('CNY') || 
-         upperLine.includes('RMB') || upperLine.includes('PRICE') || upperLine.includes('人民幣'))
-      )
-      
+      const isHeader = ((upperLine.includes('CAP') || upperLine.includes('CAPACITY') || upperLine.includes('容量')) && (upperLine.includes('QTY') || upperLine.includes('QUANTITY') || upperLine.includes('數量')) && (upperLine.includes('HKD') || upperLine.includes('USD') || upperLine.includes('CNY') || upperLine.includes('RMB') || upperLine.includes('PRICE') || upperLine.includes('人民幣')))
       if (isHeader) {
         const parts = trimmed.split('\t')
         if (parts.length > 1) {
           const firstCol = parts[0].trim()
-          if (firstCol === firstCol.toUpperCase() && 
-              !firstCol.match(/CAP|QTY|HKD|USD|CNY|RMB/)) {
+          if (firstCol === firstCol.toUpperCase() && !firstCol.match(/CAP|QTY|HKD|USD|CNY|RMB/)) {
             currentCategory = firstCol
           }
         }
         continue
       }
-
       const chineseCategories = ['IPAD 原封沒激活', 'IPAD 激活全套有鎖']
       if ((!trimmed.includes('\t') && trimmed === trimmed.toUpperCase()) || chineseCategories.includes(trimmed)) {
         currentCategory = trimmed
         continue
       }
-
       const parts = trimmed.split(/\s+/)
       if (parts.length >= 3) {
         const model = parts[0].trim()
         const secondCol = parts[1].trim()
         const isPartNumber = /^[A-Z0-9]{6,10}$/i.test(secondCol) && !secondCol.match(/\d+(GB|TB)$/i)
-        
-        let capacity = ''
-        let qty = 0
-        let price = 0
-        
-        if (isPartNumber) {
-          qty = parseInt(parts[2]) || 0
-          price = parseFloat(parts[3]) || 0
-        } else {
-          capacity = secondCol
-          qty = parseInt(parts[2]) || 0
-          price = parseFloat(parts[3]) || 0
-        }
-
-        prices.push({
-          category: currentCategory,
-          model: model,
-          capacity: capacity,
-          qty: qty,
-          price: price
-        })
+        let capacity = '', qty = 0, price = 0
+        if (isPartNumber) { qty = parseInt(parts[2]) || 0; price = parseFloat(parts[3]) || 0 } 
+        else { capacity = secondCol; qty = parseInt(parts[2]) || 0; price = parseFloat(parts[3]) || 0 }
+        prices.push({ category: currentCategory, model, capacity, qty, price })
       }
     }
     return prices
   }
 
-  // Parse Product List
   const parseProductList = (text) => {
     const lines = text.trim().split('\n')
     const products = []
     let currentCategory = 'DEFAULT'
-
     for (const line of lines) {
       const trimmed = line.trim()
       if (!trimmed) continue
-
       const upperLine = trimmed.toUpperCase()
       if (upperLine.includes('CAP') && upperLine.includes('QTY') && upperLine.includes('HKD')) continue
-
       const chineseCategories = ['IPAD 原封沒激活', 'IPAD 激活全套有鎖']
       if ((!trimmed.includes('\t') && trimmed === trimmed.toUpperCase()) || chineseCategories.includes(trimmed)) {
         currentCategory = trimmed
         continue
       }
-
       const parts = trimmed.split('\t')
       if (parts.length >= 2) {
         const lineNum = parts[0].trim()
-        let remarks = ''
-        let description = ''
-        
-        if (parts.length === 2) {
-          description = parts[1].trim()
-        } else if (parts.length >= 3) {
-          remarks = parts[1].trim()
-          description = parts[2].trim()
-        }
-        
-        if (lineNum && description) {
-          products.push({ lineNum, remarks, description, category: currentCategory })
-        }
+        let remarks = '', description = ''
+        if (parts.length === 2) description = parts[1].trim()
+        else if (parts.length >= 3) { remarks = parts[1].trim(); description = parts[2].trim() }
+        if (lineNum && description) products.push({ lineNum, remarks, description, category: currentCategory })
       }
     }
     return products
   }
 
-  // Match logic
   const matchProducts = () => {
     const prices = parsePriceList(priceList)
     const products = parseProductList(productList)
     const results = []
-    let matchedCount = 0
-    let unmatchedCount = 0
-    let lastCategory = null
-
+    let matchedCount = 0, unmatchedCount = 0, lastCategory = null
     for (const product of products) {
       const productCapacity = extractCapacity(product.description)
       const requiresCapacity = needsCapacityMatch(product.description)
       let matchedPrice = null
-
       for (const price of prices) {
         if (price.category !== product.category) continue
         const requiresColor = needsColorMatch(product.category, price.model)
         const productModel = extractModelName(product.description, !requiresColor)
         const priceModel = extractModelName(price.model, !requiresColor)
-        
         if (!modelsMatch(productModel, priceModel)) continue
-        
         if (requiresCapacity) {
           const priceCapacity = price.capacity || extractCapacity(price.model)
           if (priceCapacity && productCapacity && priceCapacity !== productCapacity) continue
         }
-
         matchedPrice = price
         break
       }
-
       if (matchedPrice !== null) {
-        if (lastCategory !== null && lastCategory !== product.category) {
-          results.push(''); results.push('')
-        }
+        if (lastCategory !== null && lastCategory !== product.category) { results.push(''); results.push('') }
         results.push(`${product.lineNum}\t${matchedPrice.price}`)
         matchedCount++
         lastCategory = product.category
-      } else {
-        unmatchedCount++
-      }
+      } else { unmatchedCount++ }
     }
     setMatchResult(results.join('\n'))
     setStats({ matched: matchedCount, unmatched: unmatchedCount, total: products.length })
   }
 
-  // Locked Matching logic
   const processLockedMatching = () => {
     const prices = parsePriceList(priceList)
     const products = parseProductList(productList)
     const results = []
-    let matchedCount = 0
-    let unmatchedCount = 0
-    let lastCategory = null
-
+    let matchedCount = 0, unmatchedCount = 0, lastCategory = null
     for (const product of products) {
       const productCapacity = extractCapacity(product.description)
       const requiresCapacity = needsCapacityMatch(product.description)
       let matchedPrice = null
-
       for (const price of prices) {
         if (price.category !== product.category) continue
         const requiresColor = needsColorMatch(product.category, price.model)
         const productModel = extractModelName(product.description, !requiresColor)
         const priceModel = extractModelName(price.model, !requiresColor)
-        
         if (!modelsMatch(productModel, priceModel)) continue
-        
         if (requiresCapacity) {
           const priceCapacity = price.capacity || extractCapacity(price.model)
           if (priceCapacity && productCapacity && priceCapacity !== productCapacity) continue
         }
-
         matchedPrice = price
         break
       }
-
       if (matchedPrice !== null) {
-        if (lastCategory !== null && lastCategory !== product.category) {
-          results.push(''); results.push('')
-        }
+        if (lastCategory !== null && lastCategory !== product.category) { results.push(''); results.push('') }
         const remarks = product.remarks || ''
         const deductedPrice = applyDeductions(matchedPrice.price, remarks)
         results.push(`${product.lineNum}\t${deductedPrice}`)
         matchedCount++
         lastCategory = product.category
-      } else {
-        unmatchedCount++
-      }
+      } else { unmatchedCount++ }
     }
     setLockedResult(results.join('\n'))
   }
-
-  // --- Effects ---
 
   useEffect(() => {
     if (priceList.trim() && productList.trim()) {
@@ -332,33 +268,6 @@ function App() {
     }
   }, [matchResult])
 
-  // --- [CRITICAL FIX] ESC Key Handler with Capture Phase ---
-  useEffect(() => {
-    const handleKeyDown = (event) => {
-      // 1. 如果正在使用輸入法（如中文選字），不要觸發清除
-      if (event.nativeEvent.isComposing || event.key === 'Process') {
-        return
-      }
-
-      if (event.key === 'Escape') {
-        // Debugging log: 打開 F12 可以看到這個
-        console.log("ESC pressed - Triggering clearAll")
-        
-        // 2. 阻止事件繼續傳播，確保不會被 Textarea 吃掉
-        event.stopPropagation()
-        // event.preventDefault() // 視情況，如果這行導致無法操作可移除
-
-        clearAll()
-      }
-    }
-    
-    // 3. { capture: true } 是重點！這會讓 Window 比 Textarea 更早收到事件
-    window.addEventListener('keydown', handleKeyDown, { capture: true })
-    
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
-  }, [clearAll])
-
-  // --- UI Actions ---
   const copyToClipboard = async () => {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -397,6 +306,7 @@ function App() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Price List Input */}
           <Card className="border border-gray-300">
             <CardHeader className="pb-3">
               <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
@@ -425,10 +335,12 @@ function App() {
                 className="h-[300px] overflow-y-auto font-mono text-sm bg-white border-gray-300 resize-none"
                 value={priceList}
                 onChange={(e) => setPriceList(e.target.value)}
+                onKeyDown={handleInputKeyDown} // <--- 重點：直接綁定
               />
             </CardContent>
           </Card>
 
+          {/* Product List Input */}
           <Card className="border border-gray-300">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-medium text-gray-700">第二步：輸入產品列表</CardTitle>
@@ -440,6 +352,7 @@ function App() {
                 className="h-[300px] overflow-y-auto font-mono text-sm bg-white border-gray-300 resize-none"
                 value={productList}
                 onChange={(e) => setProductList(e.target.value)}
+                onKeyDown={handleInputKeyDown} // <--- 重點：直接綁定
               />
             </CardContent>
           </Card>
